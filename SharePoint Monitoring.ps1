@@ -50,8 +50,6 @@
     Geen gebruikersaccount of MFA nodig in het script.
 #>
 
-#region CONFIG – AANPASSEN PER TENANT
-
 [CmdletBinding()]
 Param (
     [Parameter(Mandatory = $true)]
@@ -71,8 +69,6 @@ Param (
     $LogFile = "C:\Scripts\Logs\SPO-TenantStorageMonitor.log"
 
 )
-
-#endregion CONFIG
 
 function Write-Log {
     param(
