@@ -26,7 +26,7 @@ $WarnThreshold = 0.85   # 85% = WARNING
 $CritThreshold = 0.95   # 95% = CRITICAL
 
 # Mail-instellingen
-$NotifyTo   = "servicedesk@ict-concept.nl"            # Ontvanger alerts (mag meerdere, gescheiden door komma)
+$NotifyTo   = "Dummy@jouwdomein"            # Ontvanger alerts (mag meerdere, gescheiden door komma)
 $NotifyFrom = "spo-monitor@jouwdomein.nl"    # Afzender (bestaand mailbox-/relay-adres)
 $SmtpServer = "smtp.jouwdomein.nl"           # SMTP-relay of interne mailserver
 
