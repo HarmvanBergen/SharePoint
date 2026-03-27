@@ -1,37 +1,76 @@
 <#
 .SYNOPSIS
-  Monitor SharePoint Online tenant storage via app-only en stuur mail bij overschrijding.
+    Monitort de opslag van een SharePoint Online tenant en stuurt e-mailmeldingen bij overschrijding van drempels.
 
 .DESCRIPTION
-  - Haalt tenant storage info op via: _api/StorageQuotas()?api-version=1.3.2
-  - Detecteert automatisch: TenantStorageMB, GeoUsedStorageMB, GeoAvailableStorageMB
-  - Berekent percentage verbruik t.o.v. totale storage
-  - Stuurt WARNING / CRITICAL e-mail bij overschrijding drempels
+    Dit script haalt informatie op over de tenantopslag via de SharePoint Online API en berekent het gebruikspercentage.
+    Het detecteert automatisch de waarden voor totale opslag, gebruikte opslag en beschikbare opslag.
+    Bij overschrijding van de opgegeven drempels worden waarschuwings- of kritieke e-mails verzonden.
 
+.PARAMETER TenantId
+    De GUID van de Azure AD tenant. Vereist voor authenticatie.
+
+.PARAMETER TenantName
+    De naam van de tenant (bijv. contoso). Wordt gebruikt om de admin-URL samen te stellen.
+
+.PARAMETER ClientId
+    De Application (client) ID van de geregistreerde app in Azure AD.
+
+.PARAMETER ClientSecret
+    Het clientgeheim van de geregistreerde app. Moet veilig worden opgeslagen.
+
+.PARAMETER WarnThreshold
+    Het percentage (als decimaal, bijv. 0.85 voor 85%) waarboven een waarschuwing wordt verzonden.
+
+.PARAMETER CritThreshold
+    Het percentage waarboven een kritieke melding wordt verzonden.
+
+.PARAMETER NotifyTo
+    Het e-mailadres van de ontvanger(s) van de meldingen. Meerdere adressen kunnen worden gescheiden door komma's.
+
+.PARAMETER NotifyFrom
+    Het e-mailadres van de afzender.
+
+.PARAMETER SmtpServer
+    De SMTP-server voor het verzenden van e-mails.
+
+.PARAMETER LogFile
+    Het pad naar het logbestand voor het script.
+
+.EXAMPLE
+    .\SharePoint Monitoring.ps1 -TenantId "12345678-1234-1234-1234-123456789012" -TenantName "contoso" -ClientId "abcd1234" -ClientSecret "secret" -NotifyTo "admin@contoso.com"
+
+    Voert het script uit met de opgegeven parameters.
+.EXAMPLE
+    .\SharePoint Monitoring.ps1 -TenantId "12345678-1234-1234-1234-123456789012" -TenantName "contoso" -ClientId "abcd1234" -ClientSecret "secret" -WarnThreshold 0.80 -CritThreshold 0.90
+
+    Voert het script uit met aangepaste drempels voor waarschuwing en kritiek.
 .NOTES
-  - Vereist App Registration met SharePoint Application-permission (Sites.FullControl.All) + admin consent.
-  - Geen user-account nodig, geen MFA in het script.
+    Vereist een app-registratie in Azure AD met de Sites.FullControl.All permissie en admin consent.
+    Geen gebruikersaccount of MFA nodig in het script.
 #>
 
 #region CONFIG – AANPASSEN PER TENANT
 
-# Entra / Azure AD gegevens
-$TenantId   = "<TENANT-ID-GUID>"              # bv. 11111111-2222-3333-4444-555555555555
-$TenantName = "<tenantnaam>"                  # bv. contoso (dan is admin-URL https://contoso-admin.sharepoint.com)
-$ClientId   = "<APP-REG-CLIENT-ID>"           # Application (client) ID van de App Registration
-$ClientSecret = "<JE-CLIENT-SECRET>"          # Client secret uit de App Registration (veilig opslaan!)
+[CmdletBinding()]
+Param (
+    [Parameter(Mandatory = $true)]
+    $TenantId = "<TENANT-ID-GUID>",              # bv. 11111111-2222-3333-4444-555555555555
+    $TenantName = "<tenantnaam>",                  # bv. contoso (dan is admin-URL https://contoso-admin.sharepoint.com)
+    $ClientId = "<APP-REG-CLIENT-ID>",           # Application (client) ID van de App Registration
+    $ClientSecret = "<JE-CLIENT-SECRET>",          # Client secret uit de App Registration (veilig opslaan!)
 
-# Alert-drempels
-$WarnThreshold = 0.85   # 85% = WARNING
-$CritThreshold = 0.95   # 95% = CRITICAL
+    # Alert-drempels
+    $WarnThreshold = 0.85,   # 85% = WARNING
+    $CritThreshold = 0.95,   # 95% = CRITICAL
 
-# Mail-instellingen
-$NotifyTo   = "Dummy@jouwdomein"            # Ontvanger alerts (mag meerdere, gescheiden door komma)
-$NotifyFrom = "spo-monitor@jouwdomein.nl"    # Afzender (bestaand mailbox-/relay-adres)
-$SmtpServer = "smtp.jouwdomein.nl"           # SMTP-relay of interne mailserver
+    # Mail-instellingen
+    $NotifyTo = "Dummy@jouwdomein.nl",            # Ontvanger alerts (mag meerdere, gescheiden door komma)
+    $NotifyFrom = "spo-monitor@jouwdomein.nl",    # Afzender (bestaand mailbox-/relay-adres)
+    $SmtpServer = "smtp.jouwdomein.nl",           # SMTP-relay of interne mailserver
+    $LogFile = "C:\Scripts\Logs\SPO-TenantStorageMonitor.log"
 
-# Optioneel: logging
-$LogFile = "C:\Scripts\Logs\SPO-TenantStorageMonitor.log"
+)
 
 #endregion CONFIG
 
@@ -105,15 +144,15 @@ try {
     # TenantStorageMB, GeoUsedStorageMB, GeoAvailableStorageMB [1](https://learn.microsoft.com/en-us/graph/permissions-selected-overview)
 
     # Probeer eerst root-level properties
-    $tenantStorageMB        = $quotaResponse.TenantStorageMB
-    $geoUsedStorageMB       = $quotaResponse.GeoUsedStorageMB
-    $geoAvailableStorageMB  = $quotaResponse.GeoAvailableStorageMB
+    $tenantStorageMB = $quotaResponse.TenantStorageMB
+    $geoUsedStorageMB = $quotaResponse.GeoUsedStorageMB
+    $geoAvailableStorageMB = $quotaResponse.GeoAvailableStorageMB
 
     # Als dat niet werkt, probeer 'value[0]' (fallback voor andere structuren)
     if (-not $tenantStorageMB -and $quotaResponse.value) {
-        $tenantStorageMB        = $quotaResponse.value[0].TenantStorageMB
-        $geoUsedStorageMB       = $quotaResponse.value[0].GeoUsedStorageMB
-        $geoAvailableStorageMB  = $quotaResponse.value[0].GeoAvailableStorageMB
+        $tenantStorageMB = $quotaResponse.value[0].TenantStorageMB
+        $geoUsedStorageMB = $quotaResponse.value[0].GeoUsedStorageMB
+        $geoAvailableStorageMB = $quotaResponse.value[0].GeoAvailableStorageMB
     }
 
     if (-not $tenantStorageMB) {
@@ -121,19 +160,19 @@ try {
         throw "Kon TenantStorageMB niet vinden in StorageQuotas response. Response: $jsonPreview"
     }
 
-    $tenantStorageMB        = [double]$tenantStorageMB
-    $geoUsedStorageMB       = [double]$geoUsedStorageMB
-    $geoAvailableStorageMB  = [double]$geoAvailableStorageMB
+    $tenantStorageMB = [double]$tenantStorageMB
+    $geoUsedStorageMB = [double]$geoUsedStorageMB
+    $geoAvailableStorageMB = [double]$geoAvailableStorageMB
 
     if ($tenantStorageMB -le 0) {
         throw "TenantStorageMB is 0 of kleiner; waarde lijkt ongeldig."
     }
 
     $usedRatio = $geoUsedStorageMB / $tenantStorageMB
-    $usedPct   = [math]::Round($usedRatio * 100, 2)
+    $usedPct = [math]::Round($usedRatio * 100, 2)
 
     Write-Log ("Tenant storage: {0} MB totaal, {1} MB gebruikt, {2} MB vrij ({3}% gebruikt)" -f `
-                $tenantStorageMB, $geoUsedStorageMB, $geoAvailableStorageMB, $usedPct)
+            $tenantStorageMB, $geoUsedStorageMB, $geoAvailableStorageMB, $usedPct)
 
     # ============================
     # 3. Drempel-check
@@ -189,12 +228,16 @@ SPO Tenant Storage Monitor
 "@
 
     Write-Log "Versturen van alert-mail ($alertLevel) naar $NotifyTo ..."
-    Send-MailMessage `
-        -From $NotifyFrom `
-        -To $NotifyTo `
-        -Subject $subject `
-        -Body $body `
-        -SmtpServer $SmtpServer
+
+    $SendMailMessageParams = @{
+        From       = $NotifyFrom
+        To         = $NotifyTo
+        Subject    = $subject
+        Body       = $body
+        SmtpServer = $SmtpServer
+    }
+    Send-MailMessage @SendMailMessageParams
+
 
     Write-Log "Alert-mail verzonden."
     Write-Log "=== Einde SPO Tenant Storage Monitor (ALERT: $alertLevel) ==="
